@@ -27,7 +27,7 @@
 #define PASSWD_NOT_MATCH        2
 #define PWD_FILE                "/etc/shadow"
 #define OLD_PWD_FILE            "/etc/shadow~"
-#define CONFIG_FILE             "netchfpw.conf"
+#define CONFIG_FILE             "netpwdchg.conf"
 #define DEFAULT_USER            "nobody"
 #define DEFAULT_GROUP           "nobody"
 #define AUTH_USER_FILE          "authuser"
@@ -36,7 +36,7 @@
 #define MAXLINE                 3000
 #define DEF_SERVER_PORT         3000
 #define LISTENQ                 5
-#define PROGRAM_NAME            "netchgpw"
+#define PROGRAM_NAME            "netpwdchg"
 #define CONF_STRING_LEN         100
 
 static int srand_called = 0;
