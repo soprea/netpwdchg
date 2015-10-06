@@ -19,7 +19,8 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <math.h>
-#include <pthread.h>
+#include <crypt.h>
+#include <ctype.h>
 
 
 #define PW_MAX_LEN              14
@@ -31,10 +32,10 @@
 #define DEFAULT_USER            "nobody"
 #define DEFAULT_GROUP           "nobody"
 #define AUTH_USER_FILE          "authuser"
-#define IP_ALLOWED              "127.0.0.1"
+#define DEF_SERVER_IP           "127.0.0.1"
 #define CONF_PATH               "."
 #define MAXLINE                 3000
-#define DEF_SERVER_PORT         3000
+#define DEF_SERVER_PORT         "3000"
 #define LISTENQ                 5
 #define PROGRAM_NAME            "netpwdchg"
 #define CONF_STRING_LEN         100
@@ -45,61 +46,83 @@ uid_t initial_e_uid; /* effective uid */
 gid_t initial_r_gid;
 gid_t initial_e_gid;
 
+/********************************************************/
+ /* BEGIN configuration file processing method */
+/********************************************************/
+
 struct conf {
-    char bindaddress[CONF_STRING_LEN];
-    char bindport[CONF_STRING_LEN];
+    char ListenIP[CONF_STRING_LEN];
+    char ListenPort[CONF_STRING_LEN];
     char group[CONF_STRING_LEN];
     char user[CONF_STRING_LEN];
     char groupThatCanConnect[CONF_STRING_LEN];
-} configuration;
-
+} conf;
 
 char **userAllowed; //data structure as an array with the latest item at zero
 int maxUserAllowed = 0;
 
-/********************************************************
- * configuration file processing method
- * BEGIN
- */
-
-void setBindAddress(char *buffer) {
-    strncpy(buffer, configuration.bindaddress, CONF_STRING_LEN - 1);
+/* initialize data to default values */
+void init_parameters (struct conf * parms) {
+  strncpy (parms->ListenIP, DEF_SERVER_IP, CONF_STRING_LEN);
+  strncpy (parms->ListenPort, DEF_SERVER_PORT, CONF_STRING_LEN);
 }
 
-void setBindPort(char *buffer) {
-    strncpy(buffer, configuration.bindport, CONF_STRING_LEN - 1);
+/* trim: get rid of trailing and leading whitespace */
+char *trim (char * s) {
+  /* Initialize start, end pointers */
+  char *s1 = s, *s2 = &s[strlen (s) - 1];
+  /* Trim and delimit right side */
+  while ( (isspace (*s2)) && (s2 >= s1) )
+    s2--;
+  *(s2+1) = '\0';
+  /* Trim left side */
+  while ( (isspace (*s1)) && (s1 < s2) )
+    s1++;
+  /* Copy finished string */
+  strcpy (s, s1);
+  return s;
 }
 
-void setGroup(char *buffer) {
-    strncpy(buffer, configuration.group, CONF_STRING_LEN - 1);
+/* parse external parameters file */
+void parse_config (struct conf * parms) {
+  char *s, buff[256];
+  FILE *fp = fopen (CONFIG_FILE, "r");
+  if (fp == NULL) { return; }
+
+  /* Read next line */
+  while ((s = fgets (buff, sizeof buff, fp)) != NULL){
+    /* Skip blank lines and comments */
+    if (buff[0] == '\n' || buff[0] == '#')
+      continue;
+
+    /* Parse name/value pair from line */
+    char name[CONF_STRING_LEN], value[CONF_STRING_LEN];
+    s = strtok (buff, "=");
+    if (s==NULL)
+      continue;
+    else
+      strncpy (name, s, CONF_STRING_LEN);
+    s = strtok (NULL, "=");
+    if (s==NULL)
+      continue;
+    else
+      strncpy (value, s, CONF_STRING_LEN);
+    trim (value);
+
+    /* Copy into correct entry in parameters struct */
+    if (strcmp(name, "ListenIP")==0)
+      strncpy (parms->ListenIP, value, CONF_STRING_LEN);
+    else if (strcmp(name, "ListenPort")==0)
+      strncpy (parms->ListenPort, value, CONF_STRING_LEN);
+    else
+      syslog (LOG_INFO,"WARNING: %s/%s: Unknown name/value pair!\n", name, value);
+  }
+  /* Close file */
+  fclose (fp);
 }
-
-void setUser(char *buffer) {
-    strncpy(buffer, configuration.user, CONF_STRING_LEN - 1);
-}
-
-void setGroupThatCanConnect(char *buffer) {
-    strncpy(buffer, configuration.groupThatCanConnect, CONF_STRING_LEN - 1);
-}
-
-struct confProc {
-    char *token;
-    void (*procToken)(char *);
-};
-
-
-struct confProc confProcedures[] = {
-    {"bindaddress", setBindAddress},
-    {"bindport", setBindPort},
-    {"group", setGroup},
-    {"user", setUser},
-    {"groupthatcanconnect", setGroupThatCanConnect},
-    {NULL, NULL}
-};
 
 /*************************************/
-/* END */
-
+/* END parsing configuration file */
 /*************************************/
 
 void sig_chld(int signo) {
@@ -154,7 +177,6 @@ void dropPrivilege() {
 void upPrivilege() {
 
 
-
 }
 
 /*************************************/
@@ -196,58 +218,6 @@ void daemonize(void) {
     freopen("/dev/null", "r", stdin);
     freopen("/dev/null", "w", stdout);
     freopen("/dev/null", "w", stderr);
-}
-
-/*************************************/
-void houseKeeping() {
-    FILE *fi;
-    char buffer[300];
-    char line[MAXLINE];
-    char tok[MAXLINE];
-    char val[MAXLINE];
-
-    initial_r_uid = getuid();
-    initial_e_uid = geteuid();
-
-    initial_r_gid = getgid();
-    initial_e_gid = getegid();
-    openlog(PROGRAM_NAME, LOG_NDELAY, LOG_USER);
-    syslog(LOG_INFO, "%s", "starting");
-
-    strcpy(configuration.bindaddress, "127.0.0.1");
-    strcpy(configuration.bindport, "3000");
-    strcpy(configuration.group, "nobody");
-    strcpy(configuration.user, "nobody");
-    strcpy(configuration.groupThatCanConnect, "nobody");
-
-    /* open configuration file */
-
-    strcpy(buffer, CONF_PATH);
-    strcat(buffer, "/");
-    strcat(buffer, CONFIG_FILE);
-
-    if (fi = fopen(buffer, "r")) {
-        /* read an process it */
-        while (fgets(line, MAXLINE - 1, fi)) {
-            if ((line[0] = '#') || (strlen(line) < 5)) {
-                // line discharged
-                sprintf(line, "line discharged %s\n", line);
-                syslog(LOG_INFO, line);
-
-            } else {
-                sscanf(line, "%s %s", tok, val);
-                struct confProc *cnfPrcpt = confProcedures;
-                while (cnfPrcpt->token != NULL) {
-                    if (strcmp(cnfPrcpt->token, tok) == 0) {
-                        cnfPrcpt->procToken(val);
-                    }
-                    cnfPrcpt++;
-                }
-            }
-        }
-        fclose(fi);
-    }
-    /* close it */
 }
 
 /*************************************/
@@ -502,15 +472,15 @@ int main(int argc, char *argv) {
     struct sockaddr cliaddr;
     pid_t childpid;
     int i;
+    struct conf parms;
 
-    houseKeeping();
+    /* configuration file */
+    init_parameters(&parms);
+    parse_config(&parms);
 
-    /*
-    read the authorised user file
-    will not proceed if the given user is not in the authorised file
-     */
-
+    /* read the authorised user file */
     readUserFile();
+
     daemonize();
     /* socket */
 
@@ -520,8 +490,8 @@ int main(int argc, char *argv) {
     //preparation of the socket address
     servaddr.sin_family = AF_INET;
     //servaddr.sin_addr.s_addr=htonl(INADDR_ANY);
-    servaddr.sin_addr.s_addr = inet_addr(configuration.bindaddress);
-    servaddr.sin_port = htons(atoi(configuration.bindport));
+    servaddr.sin_addr.s_addr = inet_addr(parms.ListenIP);
+    servaddr.sin_port = htons(atoi(parms.ListenPort));
 
     if (bind(listenfd, (struct sockaddr *) &servaddr, sizeof (servaddr)) < 0) {
         exit(EXIT_FAILURE);
@@ -553,4 +523,5 @@ int main(int argc, char *argv) {
         }
         close(connfd); /* parent closes connected socket */
     }
-}
+    return 0;
+} 
