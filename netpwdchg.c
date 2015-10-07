@@ -1,27 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <shadow.h>
-#include <sys/types.h>
-#include <pwd.h>
-#define _XOPEN_SOURCE
-#include <unistd.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <errno.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <string.h>
-#define __USE_XOPEN
-#include <arpa/inet.h>
-#include <time.h>
-#include <syslog.h>
-#include <signal.h>
-#include <sys/stat.h>
-#include <math.h>
-#include <crypt.h>
-#include <ctype.h>
-
+#include "header.h"
 
 #define PW_MAX_LEN              14
 #define USER_NOT_FOUND          1
@@ -40,7 +17,6 @@
 #define PROGRAM_NAME            "netpwdchg"
 #define CONF_STRING_LEN         100
 
-static int srand_called = 0;
 uid_t initial_r_uid; /* real uid */
 uid_t initial_e_uid; /* effective uid */
 gid_t initial_r_gid;
@@ -386,11 +362,7 @@ void chkpwloop() {
 
 /*************************************/
 void web_child(int connfd) {
-    int ntowrite;
-    ssize_t nread;
     char line[MAXLINE];
-    struct spwd *pspwd;
-    char *epasswd;
     char *pusername, *oldpwd, *newpwd1, *newpwd2;
     char *p;
     int lennewpwd1;
@@ -461,17 +433,14 @@ void web_child(int connfd) {
 }
 
 /*************************************/
-int main(int argc, char *argv) {
+int main(int argc, char **argv) {
     int listenfd;
     int connfd;
-    int n;
     socklen_t clilen;
     socklen_t addrlen;
-    char buf[MAXLINE];
     struct sockaddr_in servaddr;
     struct sockaddr cliaddr;
     pid_t childpid;
-    int i;
     struct conf parms;
 
     /* configuration file */
